@@ -13,18 +13,27 @@ Install
 Download the two zip files liberator.zip and orac.zip
 Extract the files in orac.zip to a folder of your choice, something like orac_server
 In kodi go to addons -> install from zip and install the liberator addon using the zip files
-Use a command or terminal window to navigate to the orac server directory, and start the server via python ('python run_server.py' in windows or 'python3 run_server.py' in linux). This can be on any machine visible on your network to the kodi machine, or the same machine
-The orac server uses it's own log, created in the orac server directory. Open this with an editor such as notepad++ and check through looking for errors. You can tell when it has finished starting as the last two lines will show the garbage collector (GC) logging
+For windows machines - 
+	Double click the start_server.bat and it should do what it needs to to build a virtual environment and start the server. 
+For linux machines - 
+	Use a command window to set the permissions "chmod +x start_server.sh" and then run "./start_server.sh"
+
+To stop the server simply CTRL-C in the terminal window where it is running, and press Y to confirm.
+
+Orac puts a lot of log messages into the orac.log file, so edit that to see if it started OK. At the end of the log you should see something like
 	[Orac] 2026-01-17 10:29:24 [INFO] [Orac] **GC** Starting garbage collection for static databases...
 	[Orac] 2026-01-17 10:29:24 [INFO] [Orac] **GC** Garbage collection finished in 0.02 seconds.
 	
+
 Setup
 =====
 
 First we need to tell liberator where orac is. Go to tools -> settings -> orac (first tab). Here you enter the IP of orac - if it is the same machine as you run kodi then it can be left to the default 127.0.0.1 (local host). If orac is running on a different machine then enter the IP address of that machine here. Both machines must be able to see each other over the network, obviously. Future state the orac can run as a service, but not quite yet. 
 Second we authenticate to trakt via the liberator client. Liberator sends the information to orac for use. Open the liberator addon you installed and go to tools -> settings -> accounts -> authorize trakt. Do the usual trakt auth here, nothing looks different. After you have done that you can check the orac log for a message that it has received the trakt credentials and saved them. Liberator does nothing with trakt other than this, there is no sync or trakt account options other than auth and revoke.
 Third, optionally, we authorise TMDB. If you do have a TMDB account you want to use go to tools -> settings -> accounts -> authorise TMDB. It will offer a QR code or a web page and option to open that web page, TMDB authorisation is a bit complex. Use any method to get to the web page and authorise liberator (note the name of the app here is actually 'karhu'). Liberator does nothing with TMDB other than this.
-Fourth lets get our debrid accounts done. These are in the accounts section and follow standard procedures, so far it supports RD, PM and EN. The others I need to work on a bit.
+Fourth, optionally, we authorise SIMKL. If you do have a SIMKL account then authorise it via the accounts section.
+Fifth, optionally, we authorise MDBLIST. Do this from the accounts section by adding your api token same as for the other addons.
+Next, optionally, we authorise debrid services. These are in the accounts section and follow standard procedures, so far it supports RD, PM and EN. The others I need to work on a bit.
 
 So now we have liberator on kodi and orac as a server. Liberator and orac run as a one to many relationship, which means you can have liberator running on several machines and a single orac server providing service to all of them, in fact this is the best way. Orac is a multi threaded server and also very quick to work, so you should not have any issues, but doing this means all liberator instances see exactly the same data. If you are watching a film on one kodi box, another kodi box would show that film as part watched and if you were to move from one box to another you could pick up directly. This is true for everything, all indexes, all watched status, every liberator gets the same view. The orac DB size will depend entirely on your library, but it should be around the same size as the caching used by other addons. There are no limits for the DB, the indexes (see below), the tagging, other than your hard drive. SQL is plenty fast enough.
 
@@ -32,7 +41,7 @@ So now we have liberator on kodi and orac as a server. Liberator and orac run as
 My Library
 ==========
 
-Orac will sync lists to it's internal DB with full details, this means faster widgets and no reliance on trakt or tmdb. The lists that are synced are separated into 'your lists' (i.e. owned by you and always present in the library on the assumption that as you created them you want to regard whats in the lists as in your library), and 'generic lists' (lists provided by trakt or tmdb such as trending). The 'my lists' section contains all of your lists - trakt (watchlist, collection, personal), tmdb (watchlist, personal) together. This is the heart of this architecture - the lists are just indexes or subsets of your library, nothing more. All of the items (movies/tvshows/episodes) are stored in static and dynamic databases, the lists are stored as indexes to this database but are really just a subset.
+Orac will sync lists to it's internal DB with full details, this means faster widgets and no reliance on trakt,tmdb,simkl or mdblist. The lists that are synced are separated into 'your lists' (i.e. owned by you and always present in the library on the assumption that as you created them you want to regard whats in the lists as in your library), and 'generic lists' (lists provided by trakt or tmdb such as trending). The 'my lists' section contains all of your lists - trakt (watchlist, collection, personal), tmdb (watchlist, personal) together. This is the heart of this architecture - the lists are just indexes or subsets of your library, nothing more. All of the items (movies/tvshows/episodes) are stored in static and dynamic databases, the lists are stored as indexes to this database but are really just a subset.
 
 At this point the architecture is nothing more than what current addons do with caching, just a slightly different DB structure. So what's the point? Well, for that you need to understand the internal library indexing.
 
@@ -104,6 +113,7 @@ Orac syncs on an hourly basis. The syncing is performed by :
 - TMDB lists are done in the same way, synced to the library
 - Shows/Movies updates at TMDB are retreived from TMDB, only the last 100, and if any of the updates are to items in the library then those updates are applied. This mostly affects things like ratings or new episodes.
 - Any external indexes or other lists are also parsed and updated if required.
+- If you have simkl or mdblist then these are compared to the orac DB, any required updates are bulk fed to simkl and mdblist.
 
 
 API Orac Calls
@@ -115,4 +125,10 @@ Trakt/TMDB updates
 ==================
 
 Because orac has a full DB, it does not need either trakt or tmdb to be available. If trakt was gone for a week it's unlikely the user would notice, similar with tmdb, unless you were trying to use generic lists not in your library. Orac uses a method called store-and-forward for it's updates to both systems, this means it places the update in the update queue for processing rather than actually doing anything when getting a message from liberator. Every 5 minutes the queue manager runs and checks the queue, if there are updates to be sent it will attempt to send them. Should the update fail, for example trakt is down, the update is marked as failed and will be tried again later until it goes through. This should shield the system from the regular trakt outages and as the DB is full liberator will always be able to get next episodes etc.
+
+Recommendations
+===============
+
+This was suggested by old mammoth-bullfrog, and I've added it in. For movies only (so far) it uses your current watch history to generate a list of recommendations which are grouped into top picks and genres. As you watch more movies your history changes and this list will change with that.
+down, the update is marked as failed and will be tried again later until it goes through. This should shield the system from the regular trakt outages and as the DB is full liberator will always be able to get next episodes etc.
 
