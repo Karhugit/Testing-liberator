@@ -1,3 +1,5 @@
+PLEASE USE THE RELEASES TAB, AND THE LATEST RELEASE, TO GET THE CURRENT ZIP FILES
+
 # Testing-liberator
 A download repo for people wanting to test the liberator/orac kodi addon
 
